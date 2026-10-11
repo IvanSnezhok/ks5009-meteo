@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="uk"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Метео KS5009</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--fg:#1d2330;--muted:#687080;--line:#e3e6ea;
+--in:#e8590c;--out:#1c7ed6;--rain:#5f3dc4;--accent:#1c7ed6;--warn:#e03131;--ok:#2b8a3e;color-scheme:light}
+:root[data-theme=dark]{--bg:#0f1216;--card:#171b21;--fg:#e6e8ec;--muted:#9aa3af;--line:#2a3039;
+--in:#ff922b;--out:#4dabf7;--rain:#b197fc;--accent:#4dabf7;--warn:#ff6b6b;--ok:#51cf66;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:980px;margin:0 auto;padding:14px 12px 24px}
+h1{font-size:19px;margin:0 0 2px}
+.sub{color:var(--muted);font-size:13px;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+section.card{margin-top:10px}
+.lbl{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+.big{font-size:28px;font-weight:600;font-variant-numeric:tabular-nums;margin:2px 0}
+.sm{color:var(--muted);font-size:13px}
+.alarm{color:var(--warn);font-weight:600}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.between{justify-content:space-between}
+button{font:inherit;font-size:14px;padding:6px 12px;border-radius:8px;border:1px solid var(--line);
+background:var(--card);color:var(--fg);cursor:pointer}
+button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+canvas{width:100%;height:200px;display:block;touch-action:pan-y}
+canvas.short{height:130px}
+#rain{font-size:14px;margin-top:10px}
+#rain ul{margin:6px 0 0;padding-left:18px}
+#rain li{margin:2px 0;font-variant-numeric:tabular-nums}
+.legend{display:flex;gap:16px;font-size:13px;color:var(--muted);margin:6px 0}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px}
+.ctitle{margin-top:10px}
+.tw{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:14px;margin-top:12px}
+th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th{color:var(--muted);font-weight:500}
+th:first-child,td:first-child{text-align:left}
+#msg{display:none;margin-top:10px}
+#msg.show{display:block}
+#app.hide{display:none}
+</style></head><body><main>
+<h1>Метеостанція KS5009</h1>
+<div class="sub" id="sub">Завантаження…</div>
+<div class="card" id="msg"></div>
+
+<div id="app" class="hide">
+<div class="grid">
+ <div class="card"><div class="lbl">Вдома</div><div class="big" id="inT">—</div><div class="sm" id="inH"></div></div>
+ <div class="card"><div class="lbl">Надворі</div><div class="big" id="outT">—</div><div class="sm" id="outH"></div></div>
+ <div class="card"><div class="lbl">Сьогодні</div><div class="big" id="tdT">—</div><div class="sm" id="tdW"></div></div>
+ <div class="card"><div class="lbl">Завтра</div><div class="big" id="tmT">—</div><div class="sm" id="tmW"></div></div>
+ <div class="card"><div class="lbl">Датчики</div><div class="sm" id="state" style="margin-top:6px"></div></div>
+</div>
+
+<section class="card">
+ <div class="row between"><div class="lbl">Історія</div>
+  <div class="row" id="ranges"><button data-h="24" class="on">24 год</button><button data-h="72">3 дні</button><button data-h="168">7 днів</button></div></div>
+ <div class="legend"><span><i style="background:var(--in)"></i>Вдома</span><span><i style="background:var(--out)"></i>Надворі</span><span><i style="background:var(--rain);opacity:.45"></i>Опади</span></div>
+ <div class="lbl ctitle">Температура, °C</div><canvas id="cT"></canvas>
+ <div class="lbl ctitle">Вологість, %</div><canvas id="cH"></canvas>
+ <div class="lbl ctitle">Опади, мм за годину</div><canvas id="cP" class="short"></canvas>
+ <div id="rain"></div>
+ <div class="sm" style="margin-top:6px">Опади — оцінка погодної моделі Open‑Meteo для Дніпровського району, а не вимір дощоміром.</div>
+ <div class="tw"><table id="stats"></table></div>
+</section>
+</div>
+</main>
+<script>
+const DATA_URL='https://raw.githubusercontent.com/IvanSnezhok/ks5009-meteo/data/data.bin';
+const W={0:'Ясно',1:'Переважно ясно',2:'Мінлива хмарність',3:'Хмарно',45:'Туман',48:'Туман з інеєм',
+51:'Слабка мряка',53:'Мряка',55:'Сильна мряка',56:'Крижана мряка',57:'Крижана мряка',
+61:'Слабкий дощ',63:'Дощ',65:'Сильний дощ',66:'Крижаний дощ',67:'Крижаний дощ',
+71:'Слабкий сніг',73:'Сніг',75:'Сильний сніг',77:'Снігова крупа',80:'Короткочасна злива',81:'Злива',
+82:'Сильна злива',85:'Снігопад',86:'Сильний снігопад',95:'Гроза',96:'Гроза з градом',99:'Гроза з градом'};
+const $=id=>document.getElementById(id);
+const num=(v,d=1)=>v==null?'—':v.toFixed(d).replace('.',',');
+const pad=n=>String(n).padStart(2,'0');
+const esc=s=>String(s).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
+const hm=ts=>{const d=new Date(ts*1000);return pad(d.getHours())+':'+pad(d.getMinutes());};
+let rows=[],P=null,hours=24,cursor=null,now=null;
+
+// ---------- Telegram ----------
+const tg=window.Telegram&&Telegram.WebApp;
+function applyTheme(){
+  const dark=tg&&tg.colorScheme?tg.colorScheme==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.dataset.theme=dark?'dark':'light';
+  const p=(tg&&tg.themeParams)||{},r=document.documentElement.style,set=(k,v)=>{if(v)r.setProperty(k,v);};
+  set('--bg',p.secondary_bg_color||p.bg_color);set('--card',p.section_bg_color||p.bg_color);
+  set('--fg',p.text_color);set('--muted',p.hint_color);set('--line',p.section_separator_color);
+  set('--accent',p.button_color);
+  if(tg&&drawn)drawAll();
+}
+let drawn=false;
+if(tg){tg.ready();tg.expand();tg.onEvent('themeChanged',applyTheme);}
+applyTheme();
+
+// ---------- Ключ: з адреси (#k=…), інакше збережені раніше ----------
+const KEY_RE=/k=([A-Za-z0-9_-]{43})/;
+function storedKeys(){try{return JSON.parse(localStorage.getItem('ks5009Keys')||'[]');}catch(e){return [];}}
+function rememberKey(k){const ks=[k,...storedKeys().filter(x=>x!==k)].slice(0,3);
+  try{localStorage.setItem('ks5009Keys',JSON.stringify(ks));}catch(e){}
+  if(tg&&tg.CloudStorage&&tg.isVersionAtLeast&&tg.isVersionAtLeast('6.9'))tg.CloudStorage.setItem('keys',JSON.stringify(ks),()=>{});}
+function cloudKeys(){return new Promise(res=>{
+  if(!(tg&&tg.CloudStorage&&tg.isVersionAtLeast&&tg.isVersionAtLeast('6.9')))return res([]);
+  tg.CloudStorage.getItem('keys',(err,v)=>{try{res(err||!v?[]:JSON.parse(v));}catch(e){res([]);}});});}
+function b64urlBytes(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';
+  return Uint8Array.from(atob(s),c=>c.charCodeAt(0));}
+
+async function decrypt(buf,keyStr){
+  const key=await crypto.subtle.importKey('raw',b64urlBytes(keyStr),'AES-GCM',false,['decrypt']);
+  return new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:buf.slice(0,12)},key,buf.slice(12)));
+}
+// "KS5D" | u32 jsonLen | JSON | u32 n | n×(u32 ts, i16×4) | u32 precipStart | u16 m | m×u16
+function parse(b){
+  const v=new DataView(b.buffer,b.byteOffset,b.byteLength);let o=0;
+  if(String.fromCharCode(...b.slice(0,4))!=='KS5D')throw new Error('format');o=4;
+  const jl=v.getUint32(o,true);o+=4;const nowJ=JSON.parse(new TextDecoder().decode(b.slice(o,o+jl)));o+=jl;
+  const n=v.getUint32(o,true);o+=4;const NV=-32768,hist=[];
+  for(let i=0;i<n;i++,o+=12){const g=k=>{const x=v.getInt16(o+4+k*2,true);return x===NV?null:x;};
+    hist.push([v.getUint32(o,true),g(0),g(1),g(2),g(3)]);}
+  const start=v.getUint32(o,true);o+=4;const m=v.getUint16(o,true);o+=2;const mm=[];
+  for(let i=0;i<m;i++,o+=2){const x=v.getUint16(o,true);mm.push(x===0xFFFF?null:x);}
+  return {now:nowJ,rows:hist,precip:{start,step:3600,mm}};
+}
+
+function message(html){$('msg').innerHTML=html;$('msg').classList.add('show');}
+
+async function load(){
+  const fromUrl=(location.hash.match(KEY_RE)||[])[1];
+  if(fromUrl)rememberKey(fromUrl);
+  const keys=[...new Set([fromUrl,...storedKeys(),...await cloudKeys()].filter(Boolean))];
+  if(!keys.length){$('sub').textContent='';
+    message('Відкрийте «Метео» кнопкою в чаті з ботом станції (команда /app) — так сторінка отримає ключ доступу.');return;}
+  let buf;
+  try{const r=await fetch(DATA_URL+'?t='+Date.now(),{cache:'no-store'});if(!r.ok)throw new Error(r.status);
+    buf=new Uint8Array(await r.arrayBuffer());}
+  catch(e){$('sub').textContent='Не вдалося завантажити дані ('+e.message+'). Перевірте інтернет.';return;}
+  let data=null;
+  for(const k of keys){try{data=parse(await decrypt(buf,k));if(k!==keys[0])rememberKey(k);break;}catch(e){}}
+  if(!data){$('sub').textContent='';
+    message('Ключ доступу змінився або закритий. Відкрийте «Метео» заново кнопкою в чаті з ботом (/app).');return;}
+  now=data.now;rows=data.rows;P=data.precip;
+  $('msg').classList.remove('show');$('app').classList.remove('hide');
+  render();drawAll();drawn=true;
+}
+
+function render(){
+  const n=now,age=Math.round((Date.now()/1000-n.time)/60);
+  $('sub').innerHTML=esc(n.place||'')+' · оновлено о '+hm(n.time)+(age>=2?' ('+age+' хв тому)':'')+
+    (age>45?' · <span class="alarm">станція давно не надсилала даних</span>':'');
+  $('inT').textContent=n.indoor.ok?n.indoor.t+' °C':'—';
+  $('inH').textContent=n.indoor.ok?'Вологість '+n.indoor.h+'%':'Датчик не відповідає';
+  if(n.outdoor){
+    $('outT').textContent=num(+n.outdoor.t)+' °C';
+    $('outH').textContent=(W[n.outdoor.code]||'')+' · вологість '+n.outdoor.h+'%';
+    const tmm=precipToday();
+    $('tdT').textContent=Math.round(n.today.min)+'…'+Math.round(n.today.max)+' °C';
+    $('tdW').innerHTML=esc(W[n.today.code]||'')+' · дощ '+n.today.rain+'%'+(tmm>=0.1?', ≈'+num(tmm)+' мм':'')+'<br>'+
+      (n.today.umbrella?'☂️ Візьміть парасолю':'Парасоля не потрібна');
+    $('tmT').textContent=Math.round(n.tomorrow.min)+'…'+Math.round(n.tomorrow.max)+' °C';
+    $('tmW').textContent=(W[n.tomorrow.code]||'')+' · дощ '+n.tomorrow.rain+'%';
+  }
+  $('state').innerHTML=[n.gas?'<span class="alarm">Газ! Датчик спрацював</span>':'Газу немає',
+    n.wet?'Датчик води мокрий':'Датчик води сухий','Вентилятор '+(n.fan?'працює':'вимкнений')].join('<br>');
+}
+
+function series(col,colorVar,t0){
+  const pts=[];for(const r of rows)if(r[0]>=t0)pts.push([r[0],r[col]==null?null:r[col]/10]);
+  return {pts,color:getComputedStyle(document.documentElement).getPropertyValue(colorVar).trim()};
+}
+function niceStep(x){const p=Math.pow(10,Math.floor(Math.log10(x))),f=x/p;return (f<=1?1:f<=2?2:f<=5?5:10)*p;}
+
+// Опади: значення з міткою ts — сума за годину [ts-1 год, ts].
+function precipHours(){return P?P.mm.map((v,i)=>[P.start+i*P.step,v==null?null:v/10]):[];}
+function precipSum(a,b){let s=0;for(const [ts,mm] of precipHours())if(ts>a&&ts<=b&&mm)s+=mm;return s;}
+function precipToday(){const d=new Date();d.setHours(0,0,0,0);const m=d/1000;return precipSum(m,m+86400);}
+// Епізоди дощу: години з ≥0,1 мм; одна суха година всередині не розриває епізод.
+function rainEpisodes(t0,t1){
+  const eps=[];let cur=null,dry=2;
+  for(const [ts,mm] of precipHours()){
+    if(ts<=t0||ts>t1)continue;
+    if(mm!=null&&mm>=0.1){
+      if(cur&&dry<=1){cur.end=ts;cur.sum+=mm;cur.max=Math.max(cur.max,mm);}
+      else{cur={start:ts-3600,end:ts,sum:mm,max:mm};eps.push(cur);}
+      dry=0;
+    }else dry++;
+  }
+  return eps;
+}
+
+// list: [{name,color,pts:[[ts,v]],bar?}], bands: [[від,до]] — підсвічені періоди дощу.
+function chart(cv,list,t0,t1,unit,bands){
+  const dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;
+  cv.width=w*dpr;cv.height=h*dpr;const g=cv.getContext('2d');g.scale(dpr,dpr);
+  const cs=getComputedStyle(document.documentElement),c=v=>cs.getPropertyValue(v).trim();
+  const L=36,R=8,T=26,B=20,pw=w-L-R,ph=h-T-B,isBar=list.some(s=>s.bar);
+  g.font='11px system-ui,sans-serif';g.fillStyle=c('--muted');
+  let lo=Infinity,hi=-Infinity;
+  for(const s of list)for(const p of s.pts)if(p[1]!=null&&p[0]>t0&&p[0]<=t1){lo=Math.min(lo,p[1]);hi=Math.max(hi,p[1]);}
+  if(!isFinite(lo)){g.fillText(isBar?'Немає даних про опади':'Ще немає даних — точки додаються кожні 5 хв',L,T+ph/2);return;}
+  if(isBar){lo=0;hi=Math.max(hi,1);}
+  else if(hi-lo<2){const m=(hi+lo)/2;lo=m-1;hi=m+1;}
+  const st=niceStep((hi-lo)/(isBar?2:4));lo=Math.floor(lo/st)*st;hi=Math.ceil(hi/st)*st;
+  const X=t=>L+(t-t0)/(t1-t0)*pw,Y=v=>T+(hi-v)/(hi-lo)*ph;
+  g.save();g.globalAlpha=.13;g.fillStyle=c('--rain');
+  for(const [a,b] of bands||[]){const x0=X(Math.max(a,t0)),x1=X(Math.min(b,t1));if(x1>x0)g.fillRect(x0,T,Math.max(x1-x0,2),ph);}
+  g.restore();
+  g.strokeStyle=c('--line');g.lineWidth=1;g.textAlign='right';g.textBaseline='middle';g.fillStyle=c('--muted');
+  for(let v=lo;v<=hi+st/2;v+=st){const y=Math.round(Y(v))+.5;
+    g.beginPath();g.moveTo(L,y);g.lineTo(w-R,y);g.stroke();g.fillText(String(+v.toFixed(1)).replace('.',','),L-6,y);}
+  const span=(t1-t0)/3600,xs=(span<=24?3:span<=72?12:24)*3600,tz=new Date().getTimezoneOffset()*60;
+  g.textAlign='center';g.textBaseline='top';
+  const days=['нд','пн','вт','ср','чт','пт','сб'];
+  for(let t=Math.ceil((t0-tz)/xs)*xs+tz;t<=t1;t+=xs){
+    const d=new Date(t*1000),x=X(t);if(x<L+12||x>w-R-12)continue;
+    g.fillText(span<=24||d.getHours()?pad(d.getHours())+':00':days[d.getDay()]+' '+d.getDate(),x,T+ph+5);}
+  for(const s of list){
+    if(s.bar){g.fillStyle=s.color;
+      for(const [ts,v] of s.pts){if(!v||ts<=t0||ts>t1)continue;
+        const x0=X(Math.max(ts-3600,t0)),x1=X(ts),y=Y(v);g.fillRect(x0+.5,y,Math.max(x1-x0-1,1),T+ph-y);}
+      continue;}
+    g.lineWidth=2;g.lineJoin='round';g.strokeStyle=s.color;g.fillStyle=s.color;g.beginPath();let prev=null;
+    for(let i=0;i<s.pts.length;i++){const p=s.pts[i];if(p[1]==null){prev=null;continue;}
+      const x=X(p[0]),y=Y(p[1]),joined=prev&&p[0]-prev<=900;
+      if(joined)g.lineTo(x,y);else g.moveTo(x,y);
+      // поодинока точка (між пропусками) — малюємо крапкою
+      const nx=s.pts[i+1];if(!joined&&!(nx&&nx[1]!=null&&nx[0]-p[0]<=900))g.fillRect(x-1.5,y-1.5,3,3);
+      prev=p[0];}
+    g.stroke();}
+  if(cursor!=null&&cursor>=t0){
+    const x=X(cursor);g.strokeStyle=c('--muted');g.lineWidth=1;
+    g.beginPath();g.moveTo(x,T);g.lineTo(x,T+ph);g.stroke();
+    const parts=[];
+    for(const s of list){
+      if(s.bar){const p=s.pts.find(p=>p[0]-3600<cursor&&cursor<=p[0]);
+        parts.push(p?pad(new Date((p[0]-3600)*1000).getHours())+':00–'+pad(new Date(p[0]*1000).getHours())+':00   '+
+          num(p[1]||0)+' мм':'—');continue;}
+      let best=null;
+      for(const p of s.pts)if(p[1]!=null&&(!best||Math.abs(p[0]-cursor)<Math.abs(best[0]-cursor)))best=p;
+      if(best&&Math.abs(best[0]-cursor)<=900){g.fillStyle=s.color;g.beginPath();
+        g.arc(X(best[0]),Y(best[1]),3.5,0,7);g.fill();parts.push(s.name+' '+num(best[1])+unit);}
+      else parts.push(s.name+' —');}
+    const txt=(isBar?'':hm(cursor)+'   ')+parts.join('   ');
+    g.font='12px system-ui,sans-serif';const tw=g.measureText(txt).width+12;
+    const bx=Math.min(Math.max(x-tw/2,L),w-R-tw);
+    g.fillStyle=c('--card');g.strokeStyle=c('--line');g.fillRect(bx,2,tw,20);g.strokeRect(bx+.5,2.5,tw-1,19);
+    g.fillStyle=c('--fg');g.textAlign='left';g.textBaseline='middle';g.fillText(txt,bx+6,12);}
+}
+
+function stats(col,t0){let n=0,s=0,lo=null,hi=null;
+  for(const r of rows)if(r[0]>=t0&&r[col]!=null){const v=r[col]/10;n++;s+=v;
+    lo=lo==null||v<lo?v:lo;hi=hi==null||v>hi?v:hi;}
+  return n?{lo,hi,avg:s/n}:null;}
+
+function dt(ts){const d=new Date(ts*1000);return pad(d.getDate())+'.'+pad(d.getMonth()+1)+' '+hm(ts);}
+function hours_(n){return n+' год';}
+function renderRain(t0,t1){
+  const box=$('rain');
+  if(!P){box.innerHTML='<span class="sm">Дані про опади завантажуються…</span>';return;}
+  const eps=rainEpisodes(t0,t1),total=precipSum(t0,t1),nowTs=t1;
+  const rainyH=precipHours().filter(([ts,mm])=>ts>t0&&ts<=t1&&mm>=0.1).length;
+  let h='<b>Опади за період: '+num(total)+' мм</b>'+
+    (eps.length?' · '+eps.length+' '+(eps.length==1?'дощ':eps.length<5?'дощі':'дощів')+', '+hours_(rainyH)+' з опадами':' · без опадів');
+  if(eps.length)h+='<ul>'+eps.slice().reverse().map(e=>{
+    const ongoing=e.end>=nowTs-3600&&precipHours().some(([ts,mm])=>ts>nowTs&&ts<=nowTs+3600&&mm>=0.1);
+    return '<li>'+dt(e.start)+' – '+(ongoing?'триває':hm(e.end))+' · '+num(e.sum)+' мм'+
+      (e.max>=0.2?' (до '+num(e.max)+' мм/год)':'')+'</li>';}).join('')+'</ul>';
+  const next=rainEpisodes(nowTs,nowTs+86400),nextSum=precipSum(nowTs,nowTs+86400);
+  h+='<div style="margin-top:8px"><b>Наступні 24 год:</b> '+(next.length?
+    '≈'+num(nextSum)+' мм — '+next.map(e=>dt(e.start)+'–'+hm(e.end)).join(', '):'опадів не очікується')+'</div>';
+  box.innerHTML=h;
+}
+
+function drawAll(){
+  const t1=Math.floor(Date.now()/1000),t0=t1-hours*3600;
+  const bands=rainEpisodes(t0-86400,t1).map(e=>[e.start,e.end]);
+  const cs=getComputedStyle(document.documentElement),col=v=>cs.getPropertyValue(v).trim();
+  chart($('cT'),[{...series(1,'--in',t0),name:'вдома'},{...series(3,'--out',t0),name:'надворі'}],t0,t1,'°',bands);
+  chart($('cH'),[{...series(2,'--in',t0),name:'вдома'},{...series(4,'--out',t0),name:'надворі'}],t0,t1,'%',bands);
+  chart($('cP'),[{name:'опади',bar:true,color:col('--rain'),pts:precipHours()}],t0,t1,' мм',bands);
+  renderRain(t0,t1);
+  const line=(name,ct,ch)=>{const a=stats(ct,t0),b=stats(ch,t0);
+    return '<tr><td>'+name+'</td><td>'+(a?num(a.lo):'—')+'</td><td>'+(a?num(a.avg):'—')+'</td><td>'+
+      (a?num(a.hi):'—')+'</td><td>'+(b?num(b.lo,0)+'…'+num(b.hi,0):'—')+'</td></tr>';};
+  $('stats').innerHTML='<tr><th>За період</th><th>Мін °C</th><th>Сер °C</th><th>Макс °C</th><th>Вологість %</th></tr>'+
+    line('Вдома',1,2)+line('Надворі',3,4);
+}
+
+
+
+for(const cv of [$('cT'),$('cH'),$('cP')]){
+  cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect(),L=36,R=8;
+    const f=Math.min(Math.max((e.clientX-r.left-L)/(r.width-L-R),0),1);
+    cursor=Date.now()/1000-hours*3600+f*hours*3600;drawAll();});
+  cv.addEventListener('pointerleave',()=>{cursor=null;drawAll();});
+}
+document.querySelectorAll('#ranges button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#ranges button').forEach(x=>x.classList.toggle('on',x===b));
+  hours=+b.dataset.h;drawAll();});
+addEventListener('resize',()=>{if(drawn)drawAll();});
+load();
+setInterval(load,5*60*1000);
+</script></body></html>

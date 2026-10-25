@@ -41,7 +41,7 @@ th{color:var(--muted);font-weight:500}
 th:first-child,td:first-child{text-align:left}
 #msg{display:none;margin-top:10px}
 #msg.show{display:block}
-#app.hide{display:none}
+#app.hide,.card.hide{display:none}
 </style></head><body><main>
 <h1>Метеостанція KS5009</h1>
 <div class="sub" id="sub">Завантаження…</div>
@@ -53,6 +53,7 @@ th:first-child,td:first-child{text-align:left}
  <div class="card"><div class="lbl">Надворі</div><div class="big" id="outT">—</div><div class="sm" id="outH"></div></div>
  <div class="card"><div class="lbl">Сьогодні</div><div class="big" id="tdT">—</div><div class="sm" id="tdW"></div></div>
  <div class="card"><div class="lbl">Завтра</div><div class="big" id="tmT">—</div><div class="sm" id="tmW"></div></div>
+ <div class="card hide" id="batCard"><div class="lbl">Батарея</div><div class="big" id="batSoc">—</div><div class="sm" id="batSm"></div></div>
  <div class="card"><div class="lbl">Датчики</div><div class="sm" id="state" style="margin-top:6px"></div></div>
 </div>
 
@@ -163,6 +164,15 @@ function render(){
       (n.today.umbrella?'☂️ Візьміть парасолю':'Парасоля не потрібна');
     $('tmT').textContent=Math.round(n.tomorrow.min)+'…'+Math.round(n.tomorrow.max)+' °C';
     $('tmW').textContent=(W[n.tomorrow.code]||'')+' · дощ '+n.tomorrow.rain+'%';
+  }
+  const b=n.bms;
+  $('batCard').classList.toggle('hide',!(b&&b.at));
+  if(b&&b.at){
+    const a=+b.a,ago=Math.round((n.time-b.at)/60),c=b.cells||[];
+    $('batSoc').textContent=b.soc+' %';
+    $('batSm').innerHTML=num(+b.v,2)+' В · '+(Math.abs(a)<0.2?'без струму':(a>0?'заряд ':'розряд ')+num(Math.abs(a))+' А')+
+      '<br>'+num(+b.ah)+' з '+num(+b.ahFull,0)+' А·год'+(c.length?' · комірки '+num(Math.min(...c)/1000,3)+'…'+num(Math.max(...c)/1000,3)+' В':'')+
+      (ago>16?'<br><span class="alarm">дані '+ago+' хв тому</span>':'');
   }
   $('state').innerHTML=[n.gas?'<span class="alarm">Газ! Датчик спрацював</span>':'Газу немає',
     n.wet?'Датчик води мокрий':'Датчик води сухий','Вентилятор '+(n.fan?'працює':'вимкнений')].join('<br>');
